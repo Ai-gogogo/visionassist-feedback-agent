@@ -51,7 +51,7 @@ You ─▶ Claude Code ─MCP─▶ visionassist-research (this repo) ─MCP ove
 
 ## Run it
 
-Requirements: Node.js 22.19+ (required by the locked HTTP client), a Flashpoint hackathon wallet key in `.env` as `FLASHPOINT_WALLET_KEY=0x…` (never commit it).
+Requirements: Node.js 22.19+ (required by the locked HTTP client) and a Flashpoint hackathon wallet key. Copy `.env.example` to `.env` in the repository root, then fill in `FLASHPOINT_WALLET_KEY` locally before running the wallet commands. Git ignores `.env`.
 
 ```sh
 npm install
