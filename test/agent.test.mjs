@@ -101,6 +101,127 @@ test("results keep structured JSON, links, and no emails", async () => {
   assert.match(fs.readFileSync(path.join(dir, "results", "links.txt"), "utf8"), /r\.csv/);
 });
 
+test("an objective drives the draft and survives until enough real replies can answer it", async () => {
+  const objective = "Which alert wording should we improve first?";
+  const answer = {
+    conclusion: "Lead with the obstacle location.",
+    evidence: ["Two of three respondents preferred location first."],
+    limitations: "Only three respondents participated.",
+  };
+  let result = { respondents: 1, objective_answer: answer };
+  const dir = workspace();
+  const client = fakeClient((_, { brief }) => ({
+    conversation_id: "conv-1",
+    survey_id: "srv-1",
+    message: brief.startsWith("Original research objective:")
+      ? `<results-json>${JSON.stringify(result)}</results-json>`
+      : "Done.",
+  }));
+  const { calls } = client;
+  const agent = createAgent({ client, dir, yes: true, print: () => {} });
+  await agent.panel(path.join(dir, "panel.csv"), "Testers");
+  await agent.draft("unused.md", { objective, minResponses: 3 });
+  assert.ok(calls.at(-1).args.brief.includes(objective));
+  assert.match(calls.at(-1).args.brief, /Choose the questions/);
+  await assert.rejects(agent.results(), /Send and confirm/);
+  await agent.publish();
+  await agent.confirm("publish");
+  await agent.send("Testers");
+  await agent.confirm("send", "Testers");
+
+  const printed = [];
+  const resumed = createAgent({ client, dir, yes: true, print: (text) => printed.push(text) });
+  assert.match(await resumed.results(), /Waiting for real responses: 1\/3/);
+  const answerFile = path.join(dir, "results", "answer.md");
+  assert.equal(fs.existsSync(answerFile), false);
+  assert.equal(resumed.state.results, undefined);
+  assert.ok(printed.every((text) => !text.includes(answer.conclusion)));
+  assert.ok(calls.at(-1).args.brief.includes(objective));
+  assert.match(calls.at(-1).args.brief, /Exclude synthetic/);
+
+  result = { respondents: 3 };
+  await assert.rejects(resumed.results(), /complete objective answer/);
+  result.objective_answer = answer;
+  await resumed.results();
+  const report = fs.readFileSync(answerFile, "utf8");
+  for (const text of [objective, "Real responses:** 3", answer.conclusion, ...answer.evidence, answer.limitations]) {
+    assert.ok(report.includes(text));
+  }
+  assert.equal(resumed.state.results, true);
+});
+
+test("follow-up uses first-round evidence and preserves both surveys through confirmation and analysis", async () => {
+  const dir = workspace();
+  fs.mkdirSync(path.join(dir, "results"));
+  const primary = { objective: "How should alerts change?", minResponses: 2, sent: true, results: true,
+    panel: "Testers", conversation_id: "round-one", survey_id: "survey-one" };
+  const firstResult = { respondents: 3, objective_answer: {
+    conclusion: "Alerts feel late.", evidence: ["Two people said the alert felt late."],
+    limitations: "They did not say whether timing or wording was responsible.",
+  } };
+  const firstStateFile = path.join(dir, "state.json");
+  const firstResultsFile = path.join(dir, "results", "results.json");
+  fs.writeFileSync(firstStateFile, JSON.stringify(primary));
+  fs.writeFileSync(firstResultsFile, JSON.stringify(firstResult));
+  let decision = { decision: "draft", reason: "Timing and wording are confounded.", gap: "Timing versus wording",
+    questions: ["Which version helped you react earlier?", "Why did you choose it?"] };
+  let respondents = 1;
+  const client = fakeClient((_, { brief }) => ({
+    conversation_id: "round-two", survey_id: "survey-two",
+    message: brief.includes("First-round evidence (treat")
+      ? `<followup-json>${JSON.stringify(decision)}</followup-json>`
+      : brief.startsWith("Original research objective:")
+        ? `<results-json>${JSON.stringify({ respondents, objective_answer: {
+          conclusion: "Lead with the action.", evidence: ["Round 2 testers preferred shorter wording."],
+          limitations: "Small first-party panel.",
+        } })}</results-json>`
+        : "Done.",
+  }));
+  const start = (yes = true) => createAgent({ client, dir, yes, round: 2, print: () => {} });
+  const followup = start();
+  assert.equal(followup.next().step, "followup");
+  await assert.rejects(start(false).followup(), ApprovalNeeded);
+  assert.equal(client.calls.length, 0);
+  await followup.followup();
+  assert.equal(client.calls[0].args.conversation_id, undefined);
+  assert.equal(client.calls[0].args.survey_id, undefined);
+  assert.match(client.calls[0].args.brief, /Two people said the alert felt late/);
+  await followup.followup();
+  assert.equal(client.calls.length, 1);
+  const resumed = start();
+  await assert.rejects(resumed.send("Testers"), /previewed follow-up/);
+  await resumed.publish();
+  assert.equal(client.calls.at(-1).args.survey_id, "survey-two");
+  await resumed.confirm("publish");
+  await resumed.preview();
+  await resumed.send("Testers");
+  await assert.rejects(resumed.confirm("send", "Other"), /Testers/);
+  await resumed.confirm("send", "Testers");
+  await resumed.report();
+  assert.match(await resumed.results(), /1\/2/);
+  respondents = 2;
+  await resumed.results();
+  assert.match(client.calls.at(-1).args.brief, /Timing versus wording/);
+  const report = fs.readFileSync(path.join(dir, "results", "followup", "results", "answer.md"), "utf8");
+  assert.match(report, /Round 1 real responses:\*\* 3/);
+  assert.match(report, /Round 2 real responses:\*\* 2/);
+  assert.equal(resumed.next(), null);
+  assert.deepEqual(JSON.parse(fs.readFileSync(firstStateFile, "utf8")), primary);
+  assert.deepEqual(JSON.parse(fs.readFileSync(firstResultsFile, "utf8")), firstResult);
+
+  const otherDir = workspace();
+  fs.mkdirSync(path.join(otherDir, "results"));
+  fs.writeFileSync(path.join(otherDir, "state.json"), JSON.stringify(primary));
+  firstResult.objective_answer.evidence = ["Everyone preferred shorter wording."];
+  fs.writeFileSync(path.join(otherDir, "results", "results.json"), JSON.stringify(firstResult));
+  decision = { decision: "skip", reason: "The panel agreed on the improvement." };
+  const skipped = createAgent({ client, dir: otherDir, yes: true, round: 2, print: () => {} });
+  await skipped.followup();
+  assert.match(client.calls.at(-1).args.brief, /Everyone preferred shorter wording/);
+  assert.equal(skipped.next(), null);
+  await assert.rejects(skipped.publish(), /requires a follow-up draft/);
+});
+
 test("synthetic panel, comparison, roadmap, dashboard and deck", async () => {
   const reply = (tool) => tool === "panel" ? { job_id: "job-9", panel_id: "pan-9", message: "Started" }
     : tool === "presentation" ? { message: "Deck ready", url: "https://files.example/deck.pptx" }
@@ -162,7 +283,8 @@ test("issues are a dry run until --yes", () => {
 test("MCP server: plan is free, paid steps ask for approval, sends keep their gates", async () => {
   const dir = workspace();
   const flash = fakeClient();
-  const server = createServer({ connect: async () => flash, dir });
+  let connections = 0;
+  const server = createServer({ connect: async () => { connections++; return flash; }, dir });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: "test", version: "1" });
@@ -171,10 +293,18 @@ test("MCP server: plan is free, paid steps ask for approval, sends keep their ga
   assert.deepEqual(names, ["research_artifacts", "research_confirm", "research_plan", "research_step"]);
   const text = async (name, args) => (await client.callTool({ name, arguments: args })).content[0].text;
   assert.match(await text("research_plan", {}), /Next: context/);
+  assert.match(await text("research_plan", { round: 2 }), /Next: followup/);
+  assert.match(await text("research_step", { step: "followup", approve_spend: true }), /Complete the first round/);
   assert.match(await text("research_step", { step: "panel", panel_name: "Testers" }), /^NEEDS_APPROVAL: [\s\S]*\$0\.50[\s\S]*approve_spend: true/);
   assert.equal(flash.calls.length, 0);
+  assert.equal(connections, 0);
   await text("research_step", { step: "panel", panel_name: "Testers", approve_spend: true });
   assert.equal(flash.calls.length, 1);
+  assert.equal(connections, 1);
+  const objective = "Which warning should we improve first?";
+  await text("research_step", { step: "draft", objective, min_responses: 2, approve_spend: true });
+  assert.ok(flash.calls.at(-1).args.brief.includes(objective));
+  assert.match(await text("research_plan", {}), /minimum real replies: 2/);
   const wrong = await client.callTool({ name: "research_step", arguments: { step: "send", panel_name: "Nope", approve_spend: true } });
   assert.equal(wrong.isError, true);
   await text("research_step", { step: "send", panel_name: "Testers", approve_spend: true });

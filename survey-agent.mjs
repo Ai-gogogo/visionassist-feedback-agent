@@ -4,6 +4,7 @@
 //   node survey-agent.mjs context [--location "New York, NY"] [--yes]
 //   node survey-agent.mjs panel --csv panel.csv --name "VisionAssist testers" [--yes]
 //   node survey-agent.mjs draft | revise --note "..." | publish | preview | report | results [--yes]
+//   node survey-agent.mjs draft --objective "..." [--min-responses 3] [--yes]
 //   node survey-agent.mjs send --panel "<exact name>" [--yes]          then confirm --step send --panel "<name>"
 //   node survey-agent.mjs confirm --step publish|send|interview [--panel "<name>"] [--yes]
 //   node survey-agent.mjs synthetic [-n 20] | status | compare [--yes]
@@ -18,7 +19,7 @@
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createAgent, ApprovalNeeded, maskEmails } from "./agent.mjs";
+import { createAgent, ApprovalNeeded, maskEmails, FOLLOWUP_STEPS } from "./agent.mjs";
 import { buildDashboard, buildRoadmap } from "./report.mjs";
 import { SAMPLE_RESULTS, SAMPLE_COMPARE } from "./sample-data.mjs";
 
@@ -81,14 +82,29 @@ export function sampleDashboard({ dir = ".", print = console.log } = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const opt = options(process.argv.slice(2));
   const command = opt._[0] ?? "plan";
-  const offline = ["plan", "roadmap", "issues", "sample", "skip-interview"].includes(command);
   try {
-    const agent = createAgent({ client: offline ? null : await flashpointClient(), yes: opt.yes });
+    const round = opt.round === undefined ? (command === "followup" ? 2 : 1) : Number(opt.round);
+    if (round !== 1 && round !== 2) throw new Error("--round must be 1 or 2.");
+    if (round === 2 && ![...FOLLOWUP_STEPS, "plan", "next", "confirm"].includes(command)) {
+      throw new Error("That command is not available for round two.");
+    }
+    let flashpoint;
+    const client = {
+      async call(tool, args) {
+        flashpoint ??= await flashpointClient();
+        return flashpoint.call(tool, args);
+      },
+    };
+    const agent = createAgent({ client, yes: opt.yes, round });
     const steps = {
       plan: () => agent.plan(),
+      followup: () => agent.followup(),
       context: () => agent.context(opt.location),
       panel: () => agent.panel(opt.csv ?? "panel.csv", opt.name),
-      draft: () => agent.draft(opt.brief),
+      draft: () => agent.draft(opt.brief, {
+        objective: opt.objective,
+        minResponses: opt["min-responses"] === undefined ? undefined : Number(opt["min-responses"]),
+      }),
       revise: () => agent.revise(opt.note),
       publish: () => agent.publish(),
       preview: () => agent.preview(),

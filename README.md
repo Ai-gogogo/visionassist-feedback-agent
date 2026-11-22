@@ -51,7 +51,7 @@ You ─▶ Claude Code ─MCP─▶ visionassist-research (this repo) ─MCP ove
 
 ## Run it
 
-Requirements: Node.js 18+, a Flashpoint hackathon wallet key in `.env` as `FLASHPOINT_WALLET_KEY=0x…` (never commit it).
+Requirements: Node.js 22.19+ (required by the locked HTTP client), a Flashpoint hackathon wallet key in `.env` as `FLASHPOINT_WALLET_KEY=0x…` (never commit it).
 
 ```sh
 npm install
@@ -61,6 +61,35 @@ node survey-agent.mjs plan                 # free: pipeline and next step
 ```
 
 Then either talk to Claude Code ("Run the VisionAssist research study for my testers") or step through the CLI. Each paid step needs `--yes`:
+
+### Start with a high-level objective
+
+In Claude Code, try “Find out which spoken obstacle alert we should improve first and why. Use the consenting testers in panel.csv and wait for at least three replies before concluding.” The agent passes the objective to the `draft` step, and Flashpoint selects questions and response options for that objective. For the CLI workflow below, replace the `draft` command with:
+
+```sh
+node survey-agent.mjs draft --objective "Which spoken obstacle alert should we improve first and why?" --min-responses 3 --yes
+```
+
+Omit `--min-responses` to allow an answer after one real reply. The objective persists across sessions. Once the survey is sent, `results` checks the count against the threshold. If replies are still coming in, rerun it later in the same study directory. Each check costs $0.50. On completion, `results/answer.md` contains the original objective, direct answer, real reply count, evidence and limitations. Claude Code can read it through `research_artifacts`.
+
+### Let the agent run a second round
+
+Once a real first-round objective answer is available, ask Claude Code to follow up if the first-round evidence leaves a decision unresolved. The agent will draft 2–4 questions focused on that gap, or save its reason for skipping. The follow-up uses the existing panel, subject to approval to contact those testers again.
+
+```sh
+node survey-agent.mjs followup --yes
+node survey-agent.mjs plan --round 2
+node survey-agent.mjs publish --round 2 --yes
+node survey-agent.mjs confirm --round 2 --step publish --yes
+node survey-agent.mjs preview --round 2 --yes
+node survey-agent.mjs send --round 2 --panel "VisionAssist testers" --yes
+node survey-agent.mjs confirm --round 2 --step send --panel "VisionAssist testers" --yes
+node survey-agent.mjs results --round 2 --yes
+```
+
+For MCP, call `research_step` with `step: "followup"`, then pass `round: 2` to subsequent steps and confirmations. Each Flashpoint call still needs spending approval. The second round inherits the first-round response threshold. The decision and combined answer are written to `results/followup/results/decision.json` and `results/followup/results/answer.md` and are available through `research_artifacts`.
+
+### CLI steps
 
 ```sh
 node survey-agent.mjs context --yes
@@ -88,7 +117,7 @@ node survey-agent.mjs issues --repo Ai-gogogo/Visual-Obstacle-Avoidance        #
 npm test
 ```
 
-13 offline tests with a fake Flashpoint client (no wallet, no network, no credit): spending gate, census context, email masking in output and logs, one conversation per Flashpoint agent, publish and send confirmations, structured results, the synthetic → compare → roadmap → dashboard → deck chain, interview invitations, roadmap ranking, dry-run issues, and the MCP server driven by a real MCP client over an in-memory transport.
+15 offline tests with a fake Flashpoint client (no wallet, no network, no credit): spending gate, census context, email masking in output and logs, survey conversation continuity, publish and send confirmations, objective-driven drafts and answers, evidence-driven follow-ups, structured results, the synthetic → compare → roadmap → dashboard → deck chain, interview invitations, roadmap ranking, dry-run issues, and the MCP server driven by a real MCP client over an in-memory transport.
 
 ## Files
 
