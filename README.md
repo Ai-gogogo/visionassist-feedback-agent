@@ -1,67 +1,86 @@
-# VisionAssist Feedback Agent
+# VisionAssist Research Agent
 
-A Claude Code agent that runs a real user-feedback survey for **VisionAssist**, our student prototype that helps people with low vision, on the **Flashpoint MCP**. You talk to Claude Code in plain language; it builds a first-party panel of testers who agreed to take part, drafts and publishes the survey, emails it, tracks replies and returns the findings. It can also run a synthetic panel of AI low-vision personas through the same survey and compare their answers with the real ones. Every request is paid from a hackathon USDC wallet over x402.
+**One conversation with Claude Code runs a complete, mixed-methods user study on the Flashpoint MCP, then turns the findings into engineering work.**
 
-## Why this agent
+We build **VisionAssist**, a student prototype that helps people with low vision: two phone cameras and a laptop detect obstacles, speak alerts like *"Caution, chair straight ahead, about 1 meter"*, and a local LLM answers *"What is in front of me?"*. Before our final demo we needed evidence, not opinions. This agent gets it:
 
-VisionAssist uses two phone cameras and a laptop. It speaks obstacle alerts such as "Caution, chair straight ahead, about 1 meter", and a local LLM answers questions like "What is in front of me?" or "Why did you warn me?". Before our final demo we need evidence, not opinions: are the alerts clear and early enough, are the answers useful, and would people trust the system? This agent collects that evidence from the people who tried the demo, and uses synthetic low-vision personas to show where our sighted testers might be misleading us.
+| Stage | Flashpoint tool | What it gives us |
+| --- | --- | --- |
+| 1. Context | `demographics` | Who VisionAssist serves: adults with a vision difficulty in New York (census-backed) |
+| 2. Real testers | `tool_survey` first-party panel | A survey emailed to classmates and teammates who agreed to take part, tracked to results |
+| 3. Synthetic low-vision users | `panel` create_and_run | AI personas of low-vision adults answer the same survey |
+| 4. Compare | `tool_survey` | Where sighted testers and synthetic low-vision users agree and disagree |
+| 5. Depth | `tool_qual` | AI-moderated interviews: when should an alert speak, what builds trust |
+| 6. Act | local + `presentation` | A ranked VisionAssist roadmap, an accessible results dashboard, optional GitHub issues, and a .pptx deck |
 
-## How it works
+![Results dashboard, sample data](docs/sample-dashboard.png)
+
+*The dashboard is built for the people the product serves: large type, high contrast in dark mode, real headings and labelled bars for screen readers. Shown with sample data ([HTML](docs/sample-dashboard.html), [roadmap](docs/sample-roadmap.md)).*
+
+## An MCP on top of the MCP
+
+The agent is itself an MCP server (`mcp-server.mjs`). Open Claude Code in this folder and `.mcp.json` connects it automatically:
+
+| Tool | Cost | Purpose |
+| --- | --- | --- |
+| `research_plan` | free | Pipeline status, next step, credit spent |
+| `research_step` | per step | Runs one stage (context, panel, draft, publish, preview, send, report, results, synthetic, compare, interview, roadmap, deck, …) |
+| `research_confirm` | $0.50 | Confirms publishing, emailing or interview invitations (marked destructive) |
+| `research_artifacts` | free | Reads the roadmap and summary back into the conversation |
+
+The approval gates survive the wrap. A paid step answers `NEEDS_APPROVAL: … costs $0.50` until the client calls again with `approve_spend: true` after asking its user. Sending emails needs the panel's exact name on both the request and the confirm.
 
 ```
-You ──chat──▶ Claude Code ──runs──▶ survey-agent.mjs ──x402-paid MCP calls──▶ Flashpoint MCP
-                  ▲                     │  tool_survey (one conversation_id)        │
-                  └── asks you before ──┘  panel create_and_run (synthetic)          ├─ first-party panel
-                      paying, publishing   state.json, runs/, results/               ├─ survey design + publish
-                      or emailing people                                             ├─ email + send report
-                                                                                     └─ analysis + CSV/XLSX
+You ─▶ Claude Code ─MCP─▶ visionassist-research (this repo) ─MCP over x402─▶ Flashpoint
+          ▲                 research_plan / step / confirm / artifacts         demographics, tool_survey,
+          └── asks you before spending, publishing or emailing ──┘             panel, tool_qual, presentation
+                                     │
+                                     └─▶ results/: summary, results.json, compare, interviews, roadmap.md, dashboard.html, deck link
 ```
-
-- `flashpoint.mjs`: the organizers' starter, unchanged. It creates the wallet, signs in, and pays for each MCP tool call over x402.
-- `survey-agent.mjs`: the agent's steps (`panel`, `draft`, `revise`, `publish`, `preview`, `send`, `confirm`, `report`, `results`, `synthetic`, `status`, `compare`). It keeps the surveys agent on one `conversation_id` and saves state in `state.json`.
-- `survey-brief.md`: the seven questions about alert clarity, alert timing, answer usefulness, trust and the most valued feature, with results broken down by role.
-- `CLAUDE.md`: how Claude Code drives the agent and what it must never do.
 
 ## Safety by design
 
-| Gate | What happens |
+| Gate | Behaviour |
 | --- | --- |
-| Spending | A step over $0.10 stops with exit code 3 and the price; it runs only when re-run with `--yes` after you agree. |
-| Publishing | `publish` only asks; a separate `confirm --step publish` publishes. |
-| Emailing people | `send` needs the exact panel name, and the separate `confirm --step send` needs it again. Run `preview` first for the sendable count. |
-| Privacy | Email addresses are masked in all output, run logs and saved results. `panel.csv`, `state.json`, `runs/` and `results/` are git-ignored. |
-| Wallet key | Never printed. The agent refuses to connect when there is no wallet, instead of creating one silently. |
-| Consent | Only people who agreed to take part go on the panel; every email has an unsubscribe link. The agent never uses paid recruitment. |
+| Spending | Anything over $0.10 stops with the price (CLI exit code 3, MCP `NEEDS_APPROVAL`) until approved. |
+| Publishing | `publish` only asks Flashpoint; a separate confirm publishes. |
+| Emailing people | `send` and the confirm both need the panel's exact name; run `preview` first for the sendable count. Interview invitations work the same way. |
+| Privacy | Emails are masked in all output, logs, saved results and the deck context. `panel.csv`, `state.json`, `runs/`, `results/` are git-ignored. |
+| Consent | Only people who agreed go on the panel; every email carries an unsubscribe link; paid recruitment of strangers is never used. |
+| Wallet key | Never printed or committed. Without a wallet the agent refuses to connect instead of silently creating one. |
 
 ## Run it
 
-Requirements: Node.js 18 or newer, and a funded Flashpoint hackathon wallet.
+Requirements: Node.js 18+, a Flashpoint hackathon wallet key in `.env` as `FLASHPOINT_WALLET_KEY=0x…` (never commit it).
 
 ```sh
 npm install
-node flashpoint.mjs wallet       # once: prints the 0x address to send to the organizers (the key stays in .env)
-node flashpoint.mjs balance      # free: check that credit arrived
-cp panel.example.csv panel.csv   # replace with real testers who agreed: name,email,role
-node survey-agent.mjs plan       # free: the steps and the current state
+node flashpoint.mjs balance                # free: credit check
+cp panel.example.csv panel.csv             # real testers who agreed: name,email,role
+node survey-agent.mjs plan                 # free: pipeline and next step
 ```
 
-Then, step by step (each paid step is $0.50 and needs `--yes`):
+Then either talk to Claude Code ("Run the VisionAssist research study for my testers") or step through the CLI. Each paid step needs `--yes`:
 
 ```sh
+node survey-agent.mjs context --yes
 node survey-agent.mjs panel --csv panel.csv --name "VisionAssist testers" --yes
 node survey-agent.mjs draft --yes
-node survey-agent.mjs publish --yes && node survey-agent.mjs confirm --step publish --yes
+node survey-agent.mjs publish --yes  &&  node survey-agent.mjs confirm --step publish --yes
 node survey-agent.mjs preview --yes
 node survey-agent.mjs send --panel "VisionAssist testers" --yes
 node survey-agent.mjs confirm --step send --panel "VisionAssist testers" --yes
-node survey-agent.mjs report --yes
-node survey-agent.mjs results --yes
-node survey-agent.mjs synthetic -n 20 --yes && node survey-agent.mjs compare --yes   # optional
+node survey-agent.mjs report --yes  &&  node survey-agent.mjs results --yes
+node survey-agent.mjs synthetic -n 20 --yes  &&  node survey-agent.mjs compare --yes
+node survey-agent.mjs interview --yes      # or: skip-interview
+node survey-agent.mjs roadmap              # free: results/roadmap.md + results/dashboard.html
+node survey-agent.mjs deck --yes
+node survey-agent.mjs issues --repo Ai-gogogo/Visual-Obstacle-Avoidance        # dry run; --yes creates them
 ```
 
-In practice you do not type these: open Claude Code in this folder and say "Run the VisionAssist feedback survey for my testers". Claude Code follows `CLAUDE.md`, asks before each paid, publishing or emailing step, and reports the results.
+`node survey-agent.mjs next` runs whatever stage comes next and stops at every gate.
 
-Expected cost: about $5 for the full run with the synthetic comparison (≈ 9 surveys-agent steps at $0.50 plus $0.60).
+**Cost:** about $5 for the full study (≈ 8 survey/interview steps at $0.50, census $0.05, synthetic panel $0.60, deck $0.25). Emails are free.
 
 ## Tests
 
@@ -69,20 +88,29 @@ Expected cost: about $5 for the full run with the synthetic comparison (≈ 9 su
 npm test
 ```
 
-Eight offline tests use a fake Flashpoint client (no wallet, no network, no credit). They check the spending gate, the publish and send confirmations, the single conversation, email masking in output and logs, saved results and links, the synthetic-panel flow, and panel CSV validation.
+13 offline tests with a fake Flashpoint client (no wallet, no network, no credit): spending gate, census context, email masking in output and logs, one conversation per Flashpoint agent, publish and send confirmations, structured results, the synthetic → compare → roadmap → dashboard → deck chain, interview invitations, roadmap ranking, dry-run issues, and the MCP server driven by a real MCP client over an in-memory transport.
 
-## Demo script (2–3 minutes)
+## Files
 
-1. Show VisionAssist speaking an obstacle alert and answering "What is in front of me?" (10 s).
-2. In Claude Code: "Run the VisionAssist feedback survey for my testers." Claude creates the panel and shows the drafted questions.
-3. Ask for one change, approve publishing, check the sendable count, approve sending.
-4. Show a tester's inbox: the survey email with its unsubscribe link.
-5. "Summarise the results by role." Show the averages, the top feature and the themes.
-6. "Compare with synthetic low-vision users." Show where real testers and synthetic users differ on trusting the alerts.
-7. Close with one change we made to VisionAssist because of the results.
+- `agent.mjs` — the research pipeline and its gates (shared by CLI, MCP server and tests)
+- `mcp-server.mjs`, `.mcp.json` — the MCP server
+- `survey-agent.mjs` — CLI, GitHub issues, sample dashboard
+- `report.mjs` — structured-result parsing, roadmap ranking, accessible dashboard
+- `survey-brief.md`, `interview-brief.md` — the study instruments
+- `flashpoint.mjs` — the organizers' x402 starter, unchanged
+- `CLAUDE.md` — how Claude Code must drive the agent
+
+## Demo (2–3 minutes)
+
+1. VisionAssist speaks an obstacle alert and answers "What is in front of me?" (10 s).
+2. In Claude Code: "Run the VisionAssist research study." It pulls census context, creates the panel, shows the drafted survey.
+3. Approve publishing, check the sendable count, approve sending. Show a tester's email with its unsubscribe link.
+4. "Summarise the results by role, then compare with synthetic low-vision users." Show where they disagree on trust and timing.
+5. "Turn it into a roadmap." Open the dashboard; show the top fix and the issue it opened in the VisionAssist repo.
+6. Close on one change we shipped because of the study.
 
 ## Limitations
 
-- Testers are mostly sighted classmates; the synthetic panel is a stand-in for low-vision users, not a replacement for them.
-- The Flashpoint surveys agent's reply format may change; the agent reads ids and text defensively and keeps the raw (masked) replies in `runs/`.
-- VisionAssist itself is a research demo, not a validated mobility aid.
+- Most testers are sighted classmates; synthetic low-vision personas point to gaps but do not replace low-vision participants.
+- Flashpoint agents reply in prose; the agent asks for a tagged JSON block and falls back to the text when it is missing. Raw replies (masked) stay in `runs/`.
+- VisionAssist is a research demo, not a validated mobility aid.

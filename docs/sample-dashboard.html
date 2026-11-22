@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionAssist research results</title>
+<style>
+:root{--bg:#fff;--ink:#0b0b0b;--muted:#333;--line:#0b0b0b;--accent:#0040c1;--bar:#0040c1;--high:#a50000;--card:#f4f6fb}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--ink:#fff;--muted:#e6e6e6;--line:#fff;--accent:#ffd84d;--bar:#ffd84d;--high:#ff8a80;--card:#111}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:20px/1.5 "Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif}
+main{max-width:64rem;margin:auto;padding:1.5rem 1rem 4rem}
+h1{font-size:2.2rem;line-height:1.15;margin:.2rem 0 .4rem}h2{font-size:1.45rem;margin:2.2rem 0 .8rem;border-bottom:3px solid var(--line);padding-bottom:.3rem}
+p.lead{font-size:1.15rem;color:var(--muted);margin:0 0 1rem}
+.sample{border:3px solid var(--high);color:var(--high);padding:.6rem 1rem;font-weight:700;margin:1rem 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:1rem}
+.kpi{background:var(--card);border:2px solid var(--line);border-radius:.6rem;padding:1rem}
+.kpi strong{display:block;font-size:2.4rem;line-height:1.1;color:var(--accent)}
+.kpi strong.word{font-size:1.35rem;line-height:1.25;padding:.35rem 0 .25rem}
+.bars{list-style:none;margin:0;padding:0;display:grid;gap:.55rem}
+.bars li{display:grid;grid-template-columns:minmax(8rem,16rem) 1fr 4rem;gap:.8rem;align-items:center}
+.bar{display:block;height:1.4rem;border:2px solid var(--line);border-radius:.3rem;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--bar)}
+.bar-value{font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:1rem;margin-top:1.2rem}th,td{border:2px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--card)}
+blockquote{margin:.3rem 0 0;padding-left:.9rem;border-left:5px solid var(--accent);font-style:italic}
+.theme{margin:0 0 1rem}
+ol.roadmap li{margin:.5rem 0}.sev-high{color:var(--high);font-weight:700}
+pre{white-space:pre-wrap;background:var(--card);border:2px solid var(--line);padding:1rem;border-radius:.6rem;font:1rem/1.5 inherit}
+@media (max-width:40rem){.bars li{grid-template-columns:1fr 3.5rem}.bar-label{grid-column:1/-1}}
+</style>
+</head>
+<body><main>
+<h1>VisionAssist: what our testers told us</h1>
+<p class="lead">First-party panel “VisionAssist testers” on the Flashpoint MCP, compared with synthetic low-vision personas.</p>
+<p class="sample">Sample data for layout only. Not real responses.</p>
+<section aria-labelledby="h-kpi"><h2 id="h-kpi">At a glance</h2><div class="kpis">
+<div class="kpi"><strong>12</strong><span>respondents</span></div><div class="kpi"><strong>4.3</strong><span>alert clarity / 5</span></div><div class="kpi"><strong>3.1</strong><span>trust / 5</span></div><div class="kpi"><strong class="word">Spoken obstacle alerts</strong><span>most valued feature</span></div>
+</div></section>
+<section aria-labelledby="h-r"><h2 id="h-r">Ratings (1–5)</h2><ul class="bars" aria-label="Average rating per question"><li><span class="bar-label">Alert clarity</span><span class="bar" role="img" aria-label="Alert clarity: 4.3"><span style="width:86%"></span></span><span class="bar-value">4.3</span></li><li><span class="bar-label">Answer usefulness</span><span class="bar" role="img" aria-label="Answer usefulness: 3.9"><span style="width:78%"></span></span><span class="bar-value">3.9</span></li><li><span class="bar-label">Trust in obstacle warnings</span><span class="bar" role="img" aria-label="Trust in obstacle warnings: 3.1"><span style="width:62%"></span></span><span class="bar-value">3.1</span></li></ul>
+<table><caption class="sr">Average rating by role</caption><thead><tr><th scope="col">Question</th><th scope="col">teammate</th><th scope="col">classmate</th></tr></thead><tbody><tr><th scope="row">Alert clarity</th><td>4.6</td><td>4.1</td></tr><tr><th scope="row">Answer usefulness</th><td>4.2</td><td>3.7</td></tr><tr><th scope="row">Trust in obstacle warnings</th><td>3.5</td><td>2.8</td></tr></tbody></table></section>
+<section aria-labelledby="h-t"><h2 id="h-t">Did alerts come early enough?</h2><ul class="bars" aria-label="Alert timing answers"><li><span class="bar-label">Too late</span><span class="bar" role="img" aria-label="Too late: 4"><span style="width:66.66666666666667%"></span></span><span class="bar-value">4</span></li><li><span class="bar-label">About right</span><span class="bar" role="img" aria-label="About right: 6"><span style="width:100%"></span></span><span class="bar-value">6</span></li><li><span class="bar-label">Too early</span><span class="bar" role="img" aria-label="Too early: 1"><span style="width:16.666666666666668%"></span></span><span class="bar-value">1</span></li><li><span class="bar-label">Not sure</span><span class="bar" role="img" aria-label="Not sure: 1"><span style="width:16.666666666666668%"></span></span><span class="bar-value">1</span></li></ul></section>
+<section aria-labelledby="h-f"><h2 id="h-f">Most valued feature</h2><ul class="bars" aria-label="Votes per feature"><li><span class="bar-label">Spoken obstacle alerts</span><span class="bar" role="img" aria-label="Spoken obstacle alerts: 5"><span style="width:100%"></span></span><span class="bar-value">5</span></li><li><span class="bar-label">Distance in meters</span><span class="bar" role="img" aria-label="Distance in meters: 3"><span style="width:60%"></span></span><span class="bar-value">3</span></li><li><span class="bar-label">Asking the assistant questions</span><span class="bar" role="img" aria-label="Asking the assistant questions: 2"><span style="width:40%"></span></span><span class="bar-value">2</span></li><li><span class="bar-label">Reading signs and text</span><span class="bar" role="img" aria-label="Reading signs and text: 1"><span style="width:20%"></span></span><span class="bar-value">1</span></li><li><span class="bar-label">Remembering my belongings</span><span class="bar" role="img" aria-label="Remembering my belongings: 1"><span style="width:20%"></span></span><span class="bar-value">1</span></li></ul></section>
+<section aria-labelledby="h-th"><h2 id="h-th">What testers said</h2><div class="theme"><strong>Alerts should say how soon, not only how far</strong> · 5 mention(s)<blockquote>One meter is too late when I&#39;m walking fast.</blockquote></div><div class="theme"><strong>Answers are helpful but a bit long</strong> · 3 mention(s)<blockquote>Just tell me the closest thing first.</blockquote></div><div class="theme"><strong>Unsure when the system cannot see</strong> · 3 mention(s)<blockquote>I want to know when it&#39;s blind, like glass doors.</blockquote></div></section>
+<section aria-labelledby="h-c"><h2 id="h-c">Real testers vs. synthetic low-vision users</h2><table><thead><tr><th scope="col">Topic</th><th scope="col">Real testers</th><th scope="col">Synthetic low-vision users</th></tr></thead><tbody><tr><th scope="row">Trust in warnings</th><td>moderate (3.1/5)</td><td>low until the system proves itself; want a cane-first fallback</td></tr><tr><th scope="row">Alert timing</th><td>a third say too late</td><td>most want earlier, vibration as well as speech</td></tr></tbody></table><p><strong>They agree:</strong> Spoken alerts are the most valuable feature; Answers should be shorter</p></section>
+<section aria-labelledby="h-rm"><h2 id="h-rm">What we will fix next</h2><ol class="roadmap"><li><strong>Warn by time-to-collision while walking</strong> <span class="sev-high">(high)</span><br>5 tester(s) asked for it</li><li><strong>Say when the camera cannot see (glass, darkness)</strong> <span class="sev-high">(high)</span><br>3 tester(s) asked for it</li><li><strong>Speak alerts earlier (time-to-collision instead of a fixed distance)</strong> <span class="sev-high">(high)</span><br>33% said alerts came too late</li><li><strong>Lead answers with the nearest obstacle</strong> <span class="sev-medium">(medium)</span><br>3 tester(s) asked for it</li><li><strong>Raise &quot;Trust in obstacle warnings&quot;</strong> <span class="sev-medium">(medium)</span><br>average 3.1 / 5</li><li><strong>Validate with low-vision users: Trust in warnings</strong> <span class="sev-medium">(medium)</span><br>testers: moderate (3.1/5); synthetic low-vision users: low until the system proves itself; want a cane-first fallback</li><li><strong>Validate with low-vision users: Alert timing</strong> <span class="sev-medium">(medium)</span><br>testers: a third say too late; synthetic low-vision users: most want earlier, vibration as well as speech</li></ol></section>
+
+
+</main><style>.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}</style></body></html>

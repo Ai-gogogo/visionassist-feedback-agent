@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "visionassist-research": {
+      "command": "node",
+      "args": ["mcp-server.mjs"]
+    }
+  }
+}

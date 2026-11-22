@@ -1,18 +1,19 @@
 # Instructions for Claude Code in this folder
 
-You run a survey for the VisionAssist team through the Flashpoint MCP, using `survey-agent.mjs`. The person you work with decides; you do the steps and explain each in one or two plain sentences.
+You run the VisionAssist research study through the Flashpoint MCP. Use the `visionassist-research` MCP tools from `.mcp.json` (or the same steps through `node survey-agent.mjs`). The person decides; you do the steps and explain each in one or two plain sentences.
 
-## How to run a step
+## How to run the study
 
-- `node survey-agent.mjs plan` is free and shows where the survey stands. Start every session with it.
-- Every other command calls the Flashpoint surveys agent. A step that costs more than $0.10 exits with code 3 and the message `Needs approval: … costs $0.50`. Tell the person the step and its price, and re-run with `--yes` only after they say yes in this conversation.
-- `publish` and `send` only ask the surveys agent. Show the person what the agent said. Run `confirm --step publish`, or `confirm --step send --panel "<exact name>"`, only after they agree. Sending emails real people and cannot be undone: state the panel name and the sendable count from `preview` before asking.
-- Results land in `results/summary.md` and `results/links.txt`.
+- Start with `research_plan` (or `node survey-agent.mjs plan`): it is free and shows what is done and what comes next.
+- A paid step answers `NEEDS_APPROVAL: … costs $X` (CLI: exit code 3). Tell the person the step and the price, and call again with `approve_spend: true` (CLI: `--yes`) only after they say yes in this conversation.
+- `publish`, `send` and `interview_invite` only ask Flashpoint. Show the person what Flashpoint said, then use `research_confirm` (CLI: `confirm --step …`) only after they agree.
+- Sending emails real people and cannot be undone. Before asking, run `preview` and state the panel name and the sendable count.
+- `roadmap` is free and writes `results/roadmap.md` and `results/dashboard.html`. Creating GitHub issues (`issues --repo … --yes`) is a separate, explicit request.
 
 ## Never
 
-- Never create the wallet (`node flashpoint.mjs wallet`) unless the person asks for it in this conversation.
-- Never print, copy, commit or upload `.env`. It holds the wallet key.
+- Never print, copy, commit or upload `.env`. It holds the wallet key. Never create a new wallet unless the person asks.
 - Never add an email address the person did not give you, and never print panel members' email addresses back.
 - Never use `panel` with `action: "recruit"` or `payment_confirmation`: those pay for real outside respondents.
+- Never present `docs/sample-*` or `sample-data.mjs` numbers as real results.
 - Never commit `panel.csv`, `state.json`, `runs/` or `results/` (they are git-ignored).

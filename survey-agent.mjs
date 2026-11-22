@@ -1,236 +1,33 @@
-// VisionAssist feedback survey agent on the Flashpoint MCP.
-//
-// Claude Code (or a person) drives it one step at a time:
-//   node survey-agent.mjs plan
+// CLI for the VisionAssist research agent. Claude Code (or a person) runs one step at a time:
+//   node survey-agent.mjs plan                       free: the pipeline and what is next
+//   node survey-agent.mjs next [--yes]               run the next stage of the pipeline
+//   node survey-agent.mjs context [--location "New York, NY"] [--yes]
 //   node survey-agent.mjs panel --csv panel.csv --name "VisionAssist testers" [--yes]
-//   node survey-agent.mjs draft [--brief survey-brief.md] [--yes]
-//   node survey-agent.mjs revise --note "<change>" [--yes]
-//   node survey-agent.mjs publish [--yes]            then: confirm --step publish [--yes]
-//   node survey-agent.mjs preview [--yes]
-//   node survey-agent.mjs send --panel "<exact panel name>" [--yes]   then: confirm --step send --panel "<name>" [--yes]
-//   node survey-agent.mjs report | results | synthetic [-n 20] | status | compare   (paid ones need --yes)
+//   node survey-agent.mjs draft | revise --note "..." | publish | preview | report | results [--yes]
+//   node survey-agent.mjs send --panel "<exact name>" [--yes]          then confirm --step send --panel "<name>"
+//   node survey-agent.mjs confirm --step publish|send|interview [--panel "<name>"] [--yes]
+//   node survey-agent.mjs synthetic [-n 20] | status | compare [--yes]
+//   node survey-agent.mjs interview | interview-invite --panel "<name>" | interview-results | skip-interview
+//   node survey-agent.mjs roadmap                    free: results/roadmap.md + results/dashboard.html
+//   node survey-agent.mjs deck [--yes]               results deck (.pptx) via Flashpoint
+//   node survey-agent.mjs issues --repo owner/name [--yes]   roadmap items as GitHub issues (dry run without --yes)
+//   node survey-agent.mjs sample                     free: dashboard from sample data, for layout checks
 //
-// Safety gates: a step that costs more than $0.10 stops unless --yes is given; publishing and
-// emailing people are two separate calls, and the "confirm" call needs the matching --step (and,
-// for sending, the exact panel name again). Email addresses never appear in output or logs.
+// Gates: a step over $0.10 stops unless --yes; publishing, emailing and interview invitations each need a
+// separate confirm with the matching step (and the exact panel name). Emails never appear in output or logs.
 import fs from "node:fs";
-import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createAgent, ApprovalNeeded, maskEmails } from "./agent.mjs";
+import { buildDashboard, buildRoadmap } from "./report.mjs";
+import { SAMPLE_RESULTS, SAMPLE_COMPARE } from "./sample-data.mjs";
 
-export const PRICE = { tool_survey: 0.5, synthetic: 0.6, status: 0 };
-const APPROVAL_LIMIT = 0.1;
-const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-
-export class ApprovalNeeded extends Error {}
-
-export const maskEmails = (text) => String(text).replace(EMAIL, "<email>");
-
-// Panel CSV: header row with name,email and any extra per-person details (e.g. role).
-export function readPanel(file) {
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) throw new Error(`${file} needs a header row and at least one person.`);
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  if (!header.includes("name") || !header.includes("email")) throw new Error(`${file} needs name and email columns.`);
-  const seen = new Set();
-  return lines.slice(1).map((line, i) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const row = Object.fromEntries(header.map((h, j) => [h, cells[j] ?? ""]));
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) throw new Error(`Row ${i + 2}: "${row.name}" has no valid email.`);
-    const key = row.email.toLowerCase();
-    if (seen.has(key)) throw new Error(`Row ${i + 2}: duplicate email for "${row.name}".`);
-    seen.add(key);
-    return row;
-  });
-}
-
-// Find a key anywhere in a nested result (the surveys agent nests ids in varying places).
-export function findKey(value, key) {
-  if (!value || typeof value !== "object") return undefined;
-  if (key in value && value[key] != null) return value[key];
-  for (const child of Object.values(value)) {
-    const found = findKey(child, key);
-    if (found != null) return found;
-  }
-  return undefined;
-}
-
-export function agentText(result) {
-  if (typeof result === "string") return result;
-  for (const key of ["message", "response", "reply", "answer", "text", "content", "summary"]) {
-    const value = findKey(result, key);
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return JSON.stringify(result, null, 2);
-}
-
-const links = (text) => [...new Set(String(text).match(/https?:\/\/[^\s)"'<>\]]+/g) ?? [])];
-
-export function createAgent({ client, stateFile = "state.json", runDir = "runs", resultDir = "results", yes = false, print = console.log }) {
-  const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : { spent: 0 };
-  const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
-
-  function record(tool, args, result) {
-    fs.mkdirSync(runDir, { recursive: true });
-    const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${tool}.json`;
-    fs.writeFileSync(path.join(runDir, name), maskEmails(JSON.stringify({ tool, args, result }, null, 2)));
-  }
-
-  async function paid(tool, args, price, why) {
-    if (price > APPROVAL_LIMIT && !yes) {
-      throw new ApprovalNeeded(`Needs approval: ${why} costs $${price.toFixed(2)} of Flashpoint credit. Re-run with --yes after you agree.`);
-    }
-    const result = await client.call(tool, args);
-    state.spent = Math.round(((state.spent ?? 0) + price) * 100) / 100;
-    record(tool, args, result);
-    save();
-    return result;
-  }
-
-  // Every survey step stays on ONE conversation with the surveys agent.
-  async function survey(brief, why) {
-    const args = { brief };
-    if (state.conversation_id) args.conversation_id = state.conversation_id;
-    if (state.survey_id) args.survey_id = state.survey_id;
-    const result = await paid("tool_survey", args, PRICE.tool_survey, why);
-    state.conversation_id = findKey(result, "conversation_id") ?? state.conversation_id;
-    state.survey_id = findKey(result, "survey_id") ?? state.survey_id;
-    save();
-    const text = maskEmails(agentText(result));
-    print(text);
-    return text;
-  }
-
-  function needPanel() {
-    if (!state.panel) throw new Error("No panel yet. Run: panel --csv panel.csv --name \"<panel name>\"");
-  }
-
-  return {
-    state,
-
-    plan() {
-      print([
-        "VisionAssist feedback survey on Flashpoint (each surveys-agent step costs $0.50):",
-        "  1. panel    create the first-party panel from panel.csv",
-        "  2. draft    write the survey from survey-brief.md and show the questions",
-        "  3. publish  then confirm --step publish",
-        "  4. preview  how many people can receive it",
-        "  5. send     then confirm --step send (emails real people, cannot be undone)",
-        "  6. report   delivered / opened / responded",
-        "  7. results  summary, breakdown by role, themes, CSV/XLSX links",
-        "  8. synthetic + compare (optional, $0.60 + $0.50): synthetic low-vision personas vs. real answers",
-        `State: panel=${state.panel ?? "-"} survey=${state.survey_id ?? "-"} conversation=${state.conversation_id ?? "-"} pending=${state.pending ?? "-"} spent=$${(state.spent ?? 0).toFixed(2)}`,
-      ].join("\n"));
-    },
-
-    async panel(csv, name) {
-      if (!name) throw new Error("Give the panel a name with --name.");
-      const rows = readPanel(csv);
-      const extra = Object.keys(rows[0]).filter((k) => k !== "name" && k !== "email");
-      print(`Panel "${name}" with ${rows.length} people: ${rows.map((r) => r.name).join(", ")}`);
-      const members = rows.map((r) => {
-        const details = extra.filter((k) => r[k]).map((k) => `${k} ${r[k]}`).join(", ");
-        return `${r.name} ${r.email}${details ? ` (${details})` : ""}`;
-      });
-      await survey(`Create a first-party panel called '${name}' with these members: ${members.join("; ")}. Use only these addresses.`,
-        `creating panel "${name}" (${rows.length} people)`);
-      state.panel = name;
-      save();
-    },
-
-    async draft(briefFile = "survey-brief.md") {
-      const brief = fs.readFileSync(briefFile, "utf8");
-      return survey(`${brief}\n\nDraft this survey and show me every question. Do not publish it yet.`, "drafting the survey");
-    },
-
-    async revise(note) {
-      if (!note) throw new Error("Say what to change with --note.");
-      return survey(`Revise the draft survey: ${note}. Show me the updated questions. Do not publish yet.`, "revising the survey");
-    },
-
-    async publish() {
-      const text = await survey("Publish the survey.", "asking the agent to publish");
-      state.pending = "publish";
-      save();
-      print("\nThe agent may be asking to confirm publishing. If you agree: confirm --step publish");
-      return text;
-    },
-
-    async preview() {
-      needPanel();
-      return survey(`How many people on the '${state.panel}' panel can receive this survey? Use preview_panel_audience and give me the number.`,
-        "checking how many people can receive it");
-    },
-
-    async send(panelName) {
-      needPanel();
-      if (panelName !== state.panel) throw new Error(`To send, repeat the exact panel name with --panel "${state.panel}".`);
-      const text = await survey(`Send the survey to the '${state.panel}' panel.`, `asking to email the "${state.panel}" panel`);
-      state.pending = "send";
-      save();
-      print(`\nSending emails real people and cannot be undone. Check the count above. If you agree: confirm --step send --panel "${state.panel}"`);
-      return text;
-    },
-
-    async confirm(step, panelName) {
-      if (!step || step !== state.pending) throw new Error(`Nothing to confirm for "${step ?? ""}". Pending step: ${state.pending ?? "none"}.`);
-      if (step === "send" && panelName !== state.panel) throw new Error(`Confirming a send needs --panel "${state.panel}".`);
-      const text = await survey("confirm", `confirming the ${step} step`);
-      delete state.pending;
-      save();
-      return text;
-    },
-
-    async report() {
-      needPanel();
-      return survey(`Show the send report for the '${state.panel}' panel: delivered, opened and responded.`, "getting the send report");
-    },
-
-    async results() {
-      const text = await survey(
-        "Summarise the results: the average of each rating question overall and by role, the most valued feature, " +
-        "the main themes in the open questions with one short quote each, and give me CSV and XLSX export download links. " +
-        "Do not include anyone's email address.",
-        "summarising the results");
-      fs.mkdirSync(resultDir, { recursive: true });
-      fs.writeFileSync(path.join(resultDir, "summary.md"), text + "\n");
-      fs.writeFileSync(path.join(resultDir, "links.txt"), links(text).join("\n") + "\n");
-      print(`\nSaved ${resultDir}/summary.md and ${links(text).length} link(s) in ${resultDir}/links.txt`);
-      return text;
-    },
-
-    async synthetic(count = 20) {
-      if (!state.survey_id) throw new Error("Publish a survey first; the synthetic panel answers the same survey.");
-      const result = await paid("panel", {
-        action: "create_and_run", name: "Synthetic low-vision users", num_respondents: count, survey_id: state.survey_id,
-        research_objective: "Adults with low vision or blindness who walk independently and would try a phone-camera " +
-          "assistant that speaks obstacle alerts and answers questions about their surroundings.",
-      }, PRICE.synthetic, `running ${count} synthetic low-vision personas through the survey (can take 30+ minutes)`);
-      state.synthetic = { job_id: findKey(result, "job_id"), panel_id: findKey(result, "panel_id") };
-      save();
-      print(maskEmails(agentText(result)));
-    },
-
-    async status() {
-      const job = state.synthetic?.job_id;
-      if (!job) throw new Error("No synthetic panel job to check.");
-      const result = await paid("panel", { action: "status", job_id: job }, PRICE.status, "checking the synthetic panel");
-      print(maskEmails(agentText(result)));
-    },
-
-    async compare() {
-      const id = state.synthetic?.panel_id ?? state.synthetic?.job_id;
-      if (!id) throw new Error("Run synthetic first.");
-      return survey(`Compare the answers from the '${state.panel}' panel with the synthetic low-vision panel (${id}) on the same survey. ` +
-        "Where do real testers and synthetic low-vision users agree and differ, especially on trusting the alerts?",
-        "comparing real and synthetic answers");
-    },
-  };
-}
+export { createAgent, ApprovalNeeded, readPanel, maskEmails, findKey } from "./agent.mjs";
 
 // The real client: one signed-in session, renewed once on a 401.
-async function flashpointClient() {
+export async function flashpointClient() {
   if (!fs.existsSync(new URL("./.env", import.meta.url)) && !process.env.FLASHPOINT_WALLET_KEY) {
-    throw new Error("No wallet yet. Create it only after you agree: node flashpoint.mjs wallet");
+    throw new Error("No wallet yet. Put the organizers' key in .env as FLASHPOINT_WALLET_KEY=0x... (never commit it).");
   }
   const { connect, callTool } = await import("./flashpoint.mjs");
   let session = await connect();
@@ -257,14 +54,39 @@ function options(argv) {
   return out;
 }
 
+// Roadmap items as GitHub issues in the VisionAssist repo. Without --yes it only prints what it would create.
+export function createIssues({ repo, yes, dir = ".", print = console.log, run = execFileSync }) {
+  if (!repo) throw new Error("Name the repo with --repo owner/name.");
+  const file = `${dir}/results/roadmap.md`;
+  if (!fs.existsSync(file)) throw new Error("No roadmap yet. Run: roadmap");
+  const rows = fs.readFileSync(file, "utf8").split("\n").filter((l) => /^\| \d+ \|/.test(l)).slice(0, 5)
+    .map((l) => l.split("|").map((c) => c.trim()).filter(Boolean));
+  for (const [n, title, severity, evidence] of rows) {
+    const body = `From the VisionAssist user research (Flashpoint first-party panel).\n\nSeverity: ${severity}\nEvidence: ${evidence}`;
+    if (!yes) { print(`Would create issue ${n}: ${title}`); continue; }
+    print(String(run("gh", ["issue", "create", "--repo", repo, "--title", title, "--body", body], { encoding: "utf8" })).trim());
+  }
+  if (!yes) print(`Dry run. Re-run with --yes after you agree to create ${rows.length} issue(s) in ${repo}.`);
+}
+
+export function sampleDashboard({ dir = ".", print = console.log } = {}) {
+  const roadmap = buildRoadmap({ results: SAMPLE_RESULTS, compare: SAMPLE_COMPARE });
+  fs.mkdirSync(`${dir}/docs`, { recursive: true });
+  fs.writeFileSync(`${dir}/docs/sample-dashboard.html`, buildDashboard({ results: SAMPLE_RESULTS, compare: SAMPLE_COMPARE,
+    roadmap: roadmap.items, panel: "VisionAssist testers", sample: true }));
+  fs.writeFileSync(`${dir}/docs/sample-roadmap.md`, roadmap.markdown);
+  print("Wrote docs/sample-dashboard.html and docs/sample-roadmap.md (sample data, not real responses).");
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const opt = options(process.argv.slice(2));
   const command = opt._[0] ?? "plan";
-  const offline = command === "plan";
+  const offline = ["plan", "roadmap", "issues", "sample", "skip-interview"].includes(command);
   try {
     const agent = createAgent({ client: offline ? null : await flashpointClient(), yes: opt.yes });
-    const run = {
+    const steps = {
       plan: () => agent.plan(),
+      context: () => agent.context(opt.location),
       panel: () => agent.panel(opt.csv ?? "panel.csv", opt.name),
       draft: () => agent.draft(opt.brief),
       revise: () => agent.revise(opt.note),
@@ -277,7 +99,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       synthetic: () => agent.synthetic(opt.n || 20),
       status: () => agent.status(),
       compare: () => agent.compare(),
-    }[command];
+      interview: () => agent.interview(opt.brief),
+      "interview-invite": () => agent.interviewInvite(opt.panel),
+      "interview-results": () => agent.interviewResults(),
+      "skip-interview": () => agent.skipInterview(),
+      roadmap: () => agent.roadmap(),
+      deck: () => agent.deck(),
+      issues: () => createIssues({ repo: opt.repo, yes: opt.yes }),
+      sample: () => sampleDashboard(),
+      next: () => {
+        const nxt = agent.next();
+        if (!nxt) return agent.plan();
+        if (["panel", "send"].includes(nxt.step)) {
+          throw new Error(`Next: ${nxt.step}. It needs your input: ${nxt.step === "panel" ? "panel --csv panel.csv --name \"<name>\"" : `send --panel "${agent.state.panel}"`}`);
+        }
+        if (agent.state.pending) throw new Error(`Waiting for: confirm --step ${agent.state.pending}`);
+        console.log(`Running: ${nxt.step} (${nxt.why})`);
+        return steps[nxt.step]();
+      },
+    };
+    const run = steps[command];
     if (!run) throw new Error(`Unknown command "${command}". Try: plan`);
     await run();
   } catch (error) {

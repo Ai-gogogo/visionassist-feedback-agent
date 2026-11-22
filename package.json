@@ -1,7 +1,7 @@
 {
   "name": "flashpoint-survey-agent",
   "version": "1.0.0",
-  "description": "Claude Code survey agent on the Flashpoint MCP: VisionAssist demo feedback from a first-party panel",
+  "description": "Claude Code research agent and MCP server on the Flashpoint MCP: mixed-methods user study for VisionAssist, a low-vision assistance prototype",
   "scripts": {
     "test": "node --test test/agent.test.mjs"
   },
@@ -10,9 +10,11 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@x402/evm": "^2.32.0",
     "@x402/fetch": "^2.32.0",
     "undici": "^8.13.1",
-    "viem": "^2.58.4"
+    "viem": "^2.58.4",
+    "zod": "^4.6.7"
   }
 }
